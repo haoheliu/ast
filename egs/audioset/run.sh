@@ -10,47 +10,44 @@
 #SBATCH --job-name="ast_as"
 #SBATCH --output=./log_%j.txt
 
-set -x
-# comment this line if not running on sls cluster
-. /data/sls/scratch/share-201907/slstoolchainrc
-source ../../venvast/bin/activate
+conda activate psla
 export TORCH_HOME=../../pretrained_models
 
 model=ast
 dataset=audioset
 # full or balanced for audioset
-set=full
+set=balanced
 imagenetpretrain=True
 if [ $set == balanced ]
 then
   bal=none
   lr=5e-5
   epoch=25
-  tr_data=/data/sls/scratch/yuangong/aed-pc/src/enhance_label/datafiles_local/balanced_train_data_type1_2_mean.json
+  tr_data=/media/Disk_HDD/haoheliu/projects/ast/egs/audioset/data/datafiles/audioset_bal_train_data.json
 else
   bal=bal
   lr=1e-5
   epoch=5
-  tr_data=/data/sls/scratch/yuangong/aed-pc/src/enhance_label/datafiles_local/whole_train_data.json
+  tr_data=/media/Disk_HDD/haoheliu/projects/ast/egs/audioset/data/datafiles/audioset_bal_unbal_train_data.json
 fi
-te_data=/data/sls/scratch/yuangong/audioset/datafiles/eval_data.json
+te_data=/media/Disk_HDD/haoheliu/projects/ast/egs/audioset/data/datafiles/audioset_eval_data.json
 freqm=48
 timem=192
 mixup=0.5
 # corresponding to overlap of 6 for 16*16 patches
 fstride=10
 tstride=10
-batch_size=12
+batch_size=6
 exp_dir=./exp/test-${set}-f$fstride-t$tstride-p$imagenetpretrain-b$batch_size-lr${lr}-demo
-if [ -d $exp_dir ]; then
-  echo 'exp exist'
-  exit
-fi
+# if [ -d $exp_dir ]; then
+#   echo 'exp exist'
+#   exit
+# fi
 mkdir -p $exp_dir
 
-CUDA_CACHE_DISABLE=1 python -W ignore ../../src/run.py --model ${model} --dataset ${dataset} \
+CUDA_VISIBLE_DEVICES=0  python -W ignore ../../src/run.py --model ${model} --dataset ${dataset} \
 --data-train ${tr_data} --data-val ${te_data} --exp-dir $exp_dir \
 --label-csv ./data/class_labels_indices.csv --n_class 527 \
 --lr $lr --n-epochs ${epoch} --batch-size $batch_size --save_model True \
 --freqm $freqm --timem $timem --mixup ${mixup} --bal ${bal} \
---tstride $tstride --fstride $fstride --imagenet_pretrain $imagenetpretrain
+--tstride $tstride --fstride $fstride --imagenet_pretrain $imagenetpretrain --audioset_pretrain True

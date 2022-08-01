@@ -40,7 +40,7 @@ parser.add_argument("--n-epochs", type=int, default=1, help="number of maximum t
 # not used in the formal experiments
 parser.add_argument("--lr_patience", type=int, default=2, help="how many epoch to wait to reduce lr if mAP doesn't improve")
 
-parser.add_argument("--n-print-steps", type=int, default=100, help="number of steps to print statistics")
+parser.add_argument("--n-print-steps", type=int, default=10, help="number of steps to print statistics")
 parser.add_argument('--save_model', help='save the model or not', type=ast.literal_eval)
 
 parser.add_argument('--freqm', help='frequency mask max length', type=int, default=0)
@@ -84,14 +84,14 @@ if args.model == 'ast':
 
     val_loader = torch.utils.data.DataLoader(
         dataloader.AudiosetDataset(args.data_val, label_csv=args.label_csv, audio_conf=val_audio_conf),
-        batch_size=args.batch_size*2, shuffle=False, num_workers=args.num_workers, pin_memory=True)
+        batch_size=1, shuffle=False, num_workers=args.num_workers, pin_memory=True)
 
     audio_model = models.ASTModel(label_dim=args.n_class, fstride=args.fstride, tstride=args.tstride, input_fdim=128,
                                   input_tdim=target_length[args.dataset], imagenet_pretrain=args.imagenet_pretrain,
                                   audioset_pretrain=args.audioset_pretrain, model_size='base384')
 
 print("\nCreating experiment directory: %s" % args.exp_dir)
-os.makedirs("%s/models" % args.exp_dir)
+os.makedirs("%s/models" % args.exp_dir, exist_ok=True)
 with open("%s/args.pkl" % args.exp_dir, "wb") as f:
     pickle.dump(args, f)
 

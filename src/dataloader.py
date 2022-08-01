@@ -8,7 +8,7 @@
 # modified from:
 # Author: David Harwath
 # with some functions borrowed from https://github.com/SeanNaren/deepspeech.pytorch
-
+import os
 import csv
 import json
 import torchaudio
@@ -79,6 +79,7 @@ class AudiosetDataset(Dataset):
         # dataset spectrogram mean and std, used to normalize the input
         self.norm_mean = self.audio_conf.get('mean')
         self.norm_std = self.audio_conf.get('std')
+        self.mode = self.audio_conf.get('mode')
         # skip_norm is a flag that if you want to skip normalization to compute the normalization stats using src/get_norm_stats.py, if Ture, input normalization will be skipped for correctly calculating the stats.
         # set it as True ONLY when you are getting the normalization stats.
         self.skip_norm = self.audio_conf.get('skip_norm') if self.audio_conf.get('skip_norm') else False
@@ -95,15 +96,26 @@ class AudiosetDataset(Dataset):
         self.label_num = len(self.index_dict)
         print('number of classes is {:d}'.format(self.label_num))
 
+    def resample_16k(self, data, sr):
+        if(sr == 16000): 
+            return data, 16000
+        elif(sr == 32000):
+            return data[:,::2], 16000
+        else:
+            raise RuntimeError("Unexpected sampling rate %s" % (sr))
+
     def _wav2fbank(self, filename, filename2=None):
         # mixup
         if filename2 == None:
             waveform, sr = torchaudio.load(filename)
+            waveform, sr = self.resample_16k(waveform, sr)
             waveform = waveform - waveform.mean()
         # mixup
         else:
             waveform1, sr = torchaudio.load(filename)
-            waveform2, _ = torchaudio.load(filename2)
+            waveform1, sr = self.resample_16k(waveform1, sr)
+            waveform2, sr = torchaudio.load(filename2)
+            waveform2, sr = self.resample_16k(waveform2, sr)
 
             waveform1 = waveform1 - waveform1.mean()
             waveform2 = waveform2 - waveform2.mean()
@@ -155,15 +167,23 @@ class AudiosetDataset(Dataset):
         """
         # do mix-up for this sample (controlled by the given mixup rate)
         if random.random() < self.mixup:
-            datum = self.data[index]
-            # find another sample to mix, also do balance sampling
-            # sample the other sample from the multinomial distribution, will make the performance worse
-            # mix_sample_idx = np.random.choice(len(self.data), p=self.sample_weight_file)
-            # sample the other sample from the uniform distribution
-            mix_sample_idx = random.randint(0, len(self.data)-1)
-            mix_datum = self.data[mix_sample_idx]
-            # get the mixed fbank
-            fbank, mix_lambda = self._wav2fbank(datum['wav'], mix_datum['wav'])
+            while(True):
+                try:
+                    datum = self.data[index]
+                    # find another sample to mix, also do balance sampling
+                    # sample the other sample from the multinomial distribution, will make the performance worse
+                    # mix_sample_idx = np.random.choice(len(self.data), p=self.sample_weight_file)
+                    # sample the other sample from the uniform distribution
+                    mix_sample_idx = random.randint(0, len(self.data)-1)
+                    mix_datum = self.data[mix_sample_idx]
+                    # get the mixed fbank
+                    fbank, mix_lambda = self._wav2fbank(datum['wav'], mix_datum['wav'])
+                    break
+                except:
+                    print("error reading file during mixup", datum['wav'], mix_datum['wav'])
+                    index += 1
+                    index = index % len(self.data)
+
             # initialize the label
             label_indices = np.zeros(self.label_num)
             # add sample 1 labels
@@ -171,13 +191,21 @@ class AudiosetDataset(Dataset):
                 label_indices[int(self.index_dict[label_str])] += mix_lambda
             # add sample 2 labels
             for label_str in mix_datum['labels'].split(','):
-                label_indices[int(self.index_dict[label_str])] += 1.0-mix_lambda
+                label_indices[int(self.index_dict[label_str])] += (1.0-mix_lambda)
             label_indices = torch.FloatTensor(label_indices)
+            
         # if not do mixup
         else:
-            datum = self.data[index]
-            label_indices = np.zeros(self.label_num)
-            fbank, mix_lambda = self._wav2fbank(datum['wav'])
+            while(True):
+                try:
+                    datum = self.data[index]
+                    label_indices = np.zeros(self.label_num)
+                    fbank, mix_lambda = self._wav2fbank(datum['wav'])
+                    break
+                except Exception as e:
+                    print("error reading file", datum['wav'])
+                    index += 1
+                    index = index % len(self.data)
             for label_str in datum['labels'].split(','):
                 label_indices[int(self.index_dict[label_str])] = 1.0
 
@@ -211,7 +239,10 @@ class AudiosetDataset(Dataset):
         mix_ratio = min(mix_lambda, 1-mix_lambda) / max(mix_lambda, 1-mix_lambda)
 
         # the output fbank shape is [time_frame_num, frequency_bins], e.g., [1024, 128]
-        return fbank, label_indices
+        if(self.mode == "evaluation"):
+            return fbank, label_indices, os.path.basename(datum['wav'])
+        else:
+            return fbank, label_indices
 
     def __len__(self):
         return len(self.data)
