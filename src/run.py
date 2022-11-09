@@ -19,6 +19,7 @@ import dataloader
 import models
 import numpy as np
 from traintest import train, validate
+import wandb
 
 print("I am process %s, running on %s: starting (%s)" % (os.getpid(), os.uname()[1], time.asctime()))
 
@@ -52,9 +53,19 @@ parser.add_argument("--fstride", type=int, default=10, help="soft split freq str
 parser.add_argument("--tstride", type=int, default=10, help="soft split time stride, overlap=patch_size-stride")
 parser.add_argument('--imagenet_pretrain', help='if use ImageNet pretrained audio spectrogram transformer model', type=ast.literal_eval, default='True')
 parser.add_argument('--audioset_pretrain', help='if use ImageNet and audioset pretrained audio spectrogram transformer model', type=ast.literal_eval, default='False')
-
+parser.add_argument("--lambda_diffres", type=float, default=0.5)
+parser.add_argument("--eps_diffres", type=float, default=1e-6)
 args = parser.parse_args()
 
+wandb.init(
+project="iclr2023",
+mode="disabled", # TODO
+name=os.path.basename(args.exp_dir),
+notes='ast',
+tags=["ast"],
+config=vars(args),
+)
+        
 # transformer based model
 if args.model == 'ast':
     print('now train a audio spectrogram transformer model')
@@ -62,7 +73,7 @@ if args.model == 'ast':
     norm_stats = {'audioset':[-4.2677393, 4.5689974], 'esc50':[-6.6268077, 5.358466], 'speechcommands':[-6.845978, 5.5654526]}
     target_length = {'audioset':1024, 'esc50':512, 'speechcommands':128}
     # if add noise for data augmentation, only use for speech commands
-    noise = {'audioset': False, 'esc50': False, 'speechcommands':True}
+    noise = {'audioset': False, 'esc50': False, 'speechcommands':False} # TODO I change it to false
 
     audio_conf = {'num_mel_bins': 128, 'target_length': target_length[args.dataset], 'freqm': args.freqm, 'timem': args.timem, 'mixup': args.mixup, 'dataset': args.dataset, 'mode':'train', 'mean':norm_stats[args.dataset][0], 'std':norm_stats[args.dataset][1],
                   'noise':noise[args.dataset]}
@@ -88,7 +99,7 @@ if args.model == 'ast':
 
     audio_model = models.ASTModel(label_dim=args.n_class, fstride=args.fstride, tstride=args.tstride, input_fdim=128,
                                   input_tdim=target_length[args.dataset], imagenet_pretrain=args.imagenet_pretrain,
-                                  audioset_pretrain=args.audioset_pretrain, model_size='base384')
+                                  audioset_pretrain=args.audioset_pretrain, model_size='base384', _lambda=args.lambda_diffres, eps=args.eps_diffres)
 
 print("\nCreating experiment directory: %s" % args.exp_dir)
 os.makedirs("%s/models" % args.exp_dir, exist_ok=True)

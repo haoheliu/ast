@@ -45,11 +45,13 @@ class ASTModel(nn.Module):
     :param audioset_pretrain: if use full AudioSet and ImageNet pretrained model
     :param model_size: the model size of AST, should be in [tiny224, small224, base224, base384], base224 and base 384 are same model, but are trained differently during ImageNet pretraining.
     """
-    def __init__(self, label_dim=527, fstride=10, tstride=10, input_fdim=128, input_tdim=1024, imagenet_pretrain=True, audioset_pretrain=False, model_size='base384', verbose=True):
+    def __init__(self, label_dim=527, fstride=10, tstride=10, input_fdim=128, input_tdim=1024, imagenet_pretrain=True, audioset_pretrain=False, model_size='base384', verbose=True, _lambda=0.5, eps=1e-6):
 
         super(ASTModel, self).__init__()
         assert timm.__version__ == '0.4.5', 'Please use timm == 0.4.5, the code might not be compatible with newer versions.'
-
+        self._lambda=_lambda
+        self.eps = eps
+        
         if verbose == True:
             print('---------------AST Model Summary---------------')
             print('ImageNet pretraining: {:s}, AudioSet pretraining: {:s}'.format(str(imagenet_pretrain),str(audioset_pretrain)))
@@ -168,10 +170,14 @@ class ASTModel(nn.Module):
         :return: prediction
         """
         # expect input x = (batch_size, time_frame_num, frequency_bins), e.g., (12, 1024``, 128)
-        ret = self.neural_sampler(x, _lambda=0.0, eps=1e-6)
+        ret = self.neural_sampler(x, _lambda=self._lambda, eps=self.eps)
         activeness = ret["activeness"]
         guide_loss = ret["guide_loss"]
-        x = torch.mean(ret["feature"], dim=1)
+        guide_loss_total = ret["guide_loss_total"]
+        
+        # x = torch.mean(ret["feature"], dim=1)
+        x = (ret["avgpool"] + ret["maxpool"]) / 2
+        
         # if(not self.training and epoch not in self.epochs):
         if(step % 1000 == 0):
             print("visualize")
@@ -194,7 +200,7 @@ class ASTModel(nn.Module):
         x = (x[:, 0] + x[:, 1]) / 2
 
         x = self.mlp_head(x)
-        return x, activeness, guide_loss
+        return x, activeness, guide_loss, guide_loss_total
 
 if __name__ == '__main__':
     input_tdim = 100

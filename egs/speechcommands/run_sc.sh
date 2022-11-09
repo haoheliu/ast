@@ -33,7 +33,7 @@ tstride=16
 tr_data=/mnt/fast/nobackup/users/hl01486/metadata/speechcommands/datafiles/speechcommand_train_data.json
 val_data=/mnt/fast/nobackup/users/hl01486/metadata/speechcommands/datafiles/speechcommand_valid_data.json
 eval_data=/mnt/fast/nobackup/users/hl01486/metadata/speechcommands/datafiles/speechcommand_eval_data.json
-exp_dir=/mnt/fast/nobackup/scratch4weeks/hl01486/exps/audio_tagging/ast/exp/ast-${dataset}-f$fstride-t$tstride-p$imagenetpretrain-b$batch_size-lr${lr}
+exp_dir=/mnt/fast/nobackup/scratch4weeks/hl01486/exps/audio_tagging/ast/exp/astv2-${dataset}-f$fstride-t$tstride-p$imagenetpretrain-b$batch_size-lr${lr}
 
 mkdir -p exp_dir
 

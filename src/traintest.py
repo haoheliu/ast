@@ -16,6 +16,7 @@ from torch import nn
 import numpy as np
 import pickle
 from torch.cuda.amp import autocast,GradScaler
+import wandb
 
 def train(audio_model, train_loader, test_loader, args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -29,6 +30,7 @@ def train(audio_model, train_loader, test_loader, args):
     per_sample_data_time = AverageMeter()
     loss_meter = AverageMeter()
     guide_loss_meter = AverageMeter()
+    guide_loss_total_meter = AverageMeter()
     activeness_meter = AverageMeter()
     per_sample_dnn_time = AverageMeter()
     progress = []
@@ -117,7 +119,7 @@ def train(audio_model, train_loader, test_loader, args):
                 print('warm-up learning rate is {:f}'.format(optimizer.param_groups[0]['lr']))
 
             with autocast():
-                audio_output, activeness, guide_loss = audio_model(audio_input, epoch, step=global_step)
+                audio_output, activeness, guide_loss, guide_loss_total = audio_model(audio_input, epoch, step=global_step)
                 if isinstance(loss_fn, torch.nn.CrossEntropyLoss):
                     loss = loss_fn(audio_output, torch.argmax(labels.long(), axis=1))
                 else:
@@ -139,6 +141,7 @@ def train(audio_model, train_loader, test_loader, args):
             loss_meter.update(loss.item(), B)
             guide_loss_meter.update(guide_loss.item())
             activeness_meter.update(activeness.item())
+            guide_loss_total_meter.update(guide_loss_total.item())
             batch_time.update(time.time() - end_time)
             per_sample_time.update((time.time() - end_time)/audio_input.shape[0])
             per_sample_dnn_time.update((time.time() - dnn_start_time)/audio_input.shape[0])
@@ -148,15 +151,27 @@ def train(audio_model, train_loader, test_loader, args):
             print_step = print_step or early_print_step
 
             if print_step and global_step != 0:
+                info = {
+                "train-loss":float(loss_meter.avg),
+                "activeness":float(activeness_meter.avg),
+                "guide_loss":float(guide_loss_meter.avg),
+                "guide_loss_total":float(guide_loss_total_meter.avg),
+                "speed-data":float(per_sample_data_time.avg),
+                "speed-total":float(per_sample_time.avg),
+                "speed-dnn":float(per_sample_dnn_time.avg)}
+
+                wandb.log(info, step=global_step)
+                
                 print('Epoch: [{0}][{1}/{2}]\t'
                   'Per Sample Total Time {per_sample_time.avg:.5f}\t'
                   'Per Sample Data Time {per_sample_data_time.avg:.5f}\t'
                   'Per Sample DNN Time {per_sample_dnn_time.avg:.5f}\t'
                   'Train Loss {loss_meter.avg:.4f}\t'
                   'Guide Loss {guide_loss_meter.avg:.4f}\t'
-                  'Activeness {activeness_meter.avg:.4f}\t'.format(
+                  'Activeness {activeness_meter.avg:.4f}\t'
+                  'Guide Loss Total {guide_loss_total_meter.avg:.4f}\t'.format(
                    epoch, i, len(train_loader), per_sample_time=per_sample_time, per_sample_data_time=per_sample_data_time,
-                      per_sample_dnn_time=per_sample_dnn_time, loss_meter=loss_meter, guide_loss_meter=guide_loss_meter, activeness_meter=activeness_meter), flush=True)
+                      per_sample_dnn_time=per_sample_dnn_time, loss_meter=loss_meter, guide_loss_meter=guide_loss_meter, activeness_meter=activeness_meter, guide_loss_total_meter=guide_loss_total_meter), flush=True)
                 if np.isnan(loss_meter.avg):
                     print("training diverged...")
                     return
@@ -283,7 +298,7 @@ def validate(audio_model, val_loader, args, epoch):
             audio_input = audio_input.to(device)
 
             # compute output
-            audio_output, activeness, guide_loss = audio_model(audio_input, epoch)
+            audio_output, activeness, guide_loss,_ = audio_model(audio_input, epoch)
             audio_output = torch.sigmoid(audio_output)
             predictions = audio_output.to('cpu').detach()
 
