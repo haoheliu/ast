@@ -13,6 +13,7 @@ import wget
 os.environ['TORCH_HOME'] = '../../pretrained_models'
 import timm
 from timm.models.layers import to_2tuple,trunc_normal_
+from pydiffres import *
 
 # override the timm package to relax the input shape constraint.
 class PatchEmbed(nn.Module):
@@ -54,8 +55,11 @@ class ASTModel(nn.Module):
             print('ImageNet pretraining: {:s}, AudioSet pretraining: {:s}'.format(str(imagenet_pretrain),str(audioset_pretrain)))
         # override timm input shape restriction
         timm.models.vision_transformer.PatchEmbed = PatchEmbed
-
+        sampler = eval("DiffRes")
+        self.neural_sampler = sampler(in_t_dim=input_tdim, in_f_dim=input_fdim, dimension_reduction_rate=0.75, learn_pos_emb=False)
         # if AudioSet pretraining is not used (but ImageNet pretraining may still apply)
+        input_tdim = int(input_tdim * 0.25)
+        
         if audioset_pretrain == False:
             if model_size == 'tiny224':
                 self.v = timm.create_model('vit_deit_tiny_distilled_patch16_224', pretrained=imagenet_pretrain)
@@ -147,7 +151,8 @@ class ASTModel(nn.Module):
                 new_pos_embed = torch.nn.functional.interpolate(new_pos_embed, size=(12, t_dim), mode='bilinear')
             new_pos_embed = new_pos_embed.reshape(1, 768, num_patches).transpose(1, 2)
             self.v.pos_embed = nn.Parameter(torch.cat([self.v.pos_embed[:, :2, :].detach(), new_pos_embed], dim=1))
-
+        self.epochs=[]
+        
     def get_shape(self, fstride, tstride, input_fdim=128, input_tdim=1024):
         test_input = torch.randn(1, 1, input_fdim, input_tdim)
         test_proj = nn.Conv2d(1, self.original_embedding_dim, kernel_size=(16, 16), stride=(fstride, tstride))
@@ -157,15 +162,25 @@ class ASTModel(nn.Module):
         return f_dim, t_dim
 
     @autocast()
-    def forward(self, x):
+    def forward(self, x, epoch, step=-1):
         """
         :param x: the input spectrogram, expected shape: (batch_size, time_frame_num, frequency_bins), e.g., (12, 1024, 128)
         :return: prediction
         """
-        # expect input x = (batch_size, time_frame_num, frequency_bins), e.g., (12, 1024, 128)
+        # expect input x = (batch_size, time_frame_num, frequency_bins), e.g., (12, 1024``, 128)
+        ret = self.neural_sampler(x, _lambda=0.0, eps=1e-6)
+        activeness = ret["activeness"]
+        guide_loss = ret["guide_loss"]
+        x = torch.mean(ret["feature"], dim=1)
+        # if(not self.training and epoch not in self.epochs):
+        if(step % 1000 == 0):
+            print("visualize")
+            self.neural_sampler.visualize(ret, savepath=".")
+            self.epochs.append(epoch)
+            
         x = x.unsqueeze(1)
         x = x.transpose(2, 3)
-
+        
         B = x.shape[0]
         x = self.v.patch_embed(x)
         cls_tokens = self.v.cls_token.expand(B, -1, -1)
@@ -179,7 +194,7 @@ class ASTModel(nn.Module):
         x = (x[:, 0] + x[:, 1]) / 2
 
         x = self.mlp_head(x)
-        return x
+        return x, activeness, guide_loss
 
 if __name__ == '__main__':
     input_tdim = 100

@@ -91,7 +91,7 @@ if args.model == 'ast':
                                   audioset_pretrain=args.audioset_pretrain, model_size='base384')
 
 print("\nCreating experiment directory: %s" % args.exp_dir)
-os.makedirs("%s/models" % args.exp_dir)
+os.makedirs("%s/models" % args.exp_dir, exist_ok=True)
 with open("%s/args.pkl" % args.exp_dir, "wb") as f:
     pickle.dump(args, f)
 
